@@ -1,0 +1,661 @@
+---
+title: " "
+format:
+  docx:
+    reference-doc: reference-doc.docx
+execute:
+  echo: false
+---
+
+```{r, warning=FALSE, results='hide', cache.comments=FALSE, message=FALSE}
+library(dplyr)
+library(tidyr)
+library(readr)
+library(here)
+library(flextable)
+library(survival)
+library(ggplot2)
+library(ggfortify)
+library(survminer)
+library(ggh4x)
+```
+
+```{r, warning=FALSE, results='hide', cache.comments=FALSE, message=FALSE}
+# Functions ----
+nice <- function(x, dec = 0) {
+  trimws(format(round(as.numeric(x), dec), big.mark = ",", nsmall = dec, scientific = FALSE))
+}
+nice_perc <- function(x, number, dec = 0) {
+  ifelse(x >= 5, 
+               paste0(nice(x), " (", nice(100 * x / number, dec), "%)"),
+               "< 5")
+}
+
+readFiles <- function(x) {
+  dataFiles <- list.files(here("data"), full.names = TRUE)
+  dataFiles <- dataFiles[grepl(x, dataFiles)]
+  if (x == "lsc_post_acute_covid19") {
+    colType <- cols(
+      cohort_definition_id = col_integer(),
+      cohort_name = col_character(),
+      table_name = col_character(),
+      window_name = col_character(),
+      concept_id = col_integer(),
+      concept_name = col_character(),
+      concept_count = col_character(),
+      denominator_count = col_character(),
+      overlap = col_logical(),
+      concept_type = col_character(),
+      cdm_name = col_character()
+    )
+  } else {
+    colType <- NULL
+  }
+  result <- lapply(dataFiles, function(f){read_csv(f, show_col_types = FALSE, col_types = colType)}) %>%
+    bind_rows()
+  return(result)
+}
+renameComparisonName <- function(x, new_name) {
+  x %>%
+    inner_join(new_name, by = "comparison_name") %>%
+    select(-"comparison_name") %>%
+    rename("comparison_name" = "comparison_new_name")
+}
+
+table_one_study <- function(table_char, study_id) {
+  tbl_char_temp <- table_char %>%
+    filter(study == study_id) %>%
+    select(-study, -comparison_id, -cdm_name) %>%
+    filter(!grepl("region:", .data$variable)) %>%
+    filter(group %in% c("exposure", "comparator")) %>%
+    pivot_wider(names_from = c("variable", "estimate"), values_from = "value") %>%
+    mutate(`Number individuals` = nice(number_subjects_count)) %>%
+    mutate(`Age median [Q25-Q75]` = paste0(nice(age_median), " [", nice(age_quantile25), "-", nice(age_quantile75), "]")) %>%
+    mutate(`Prior history median [Q25-Q75]` = paste0(nice(prior_history_median), " [", nice(prior_history_quantile25), "-", nice(prior_history_quantile75), "]")) %>%
+    mutate(`Numebr visits median [Q25-Q75]` = paste0(nice(number_visits_median), " [", nice(number_visits_quantile25), "-", nice(number_visits_quantile75), "]")) %>%
+    mutate(`Number PCRs median [Q25-Q75]` = paste0(nice(number_pcrs_median), "[", nice(number_pcrs_quantile25), "-", nice(number_pcrs_quantile75), "]")) %>%
+    mutate(`Age group` = as.character(NA)) %>%
+    mutate(across(starts_with("age_group"), ~ nice_perc(.x, number_subjects_count))) %>%
+    mutate(across(all_of(covariates),  ~ nice_perc(.x, number_subjects_count))) %>%
+    mutate(`Sex Female (%)` =  nice_perc(sex_female_count, number_subjects_count)) %>%
+    mutate(`Region` = as.character(NA)) %>%
+    mutate(GP = as.character(NA)) %>%
+    mutate("Distinct counts" = gp_distinct_counts) %>%
+    mutate("Individuals median [Q25 -Q75]" = paste0(gp_median_individuals, " [", gp_quantile25_individuals, "-", gp_quantile75_individuals, "]")) %>%
+    select(
+      "group", "Number individuals", "Age median [Q25-Q75]", "Age group", starts_with("age_group"), "Sex Female (%)",
+      "Prior history median [Q25-Q75]", "Numebr visits median [Q25-Q75]",
+      "Number PCRs median [Q25-Q75]", "Region", starts_with("region:"), "GP", "Distinct counts", "Individuals median [Q25 -Q75]",
+      !!covariates
+    ) %>%
+    rename_with(~ gsub("age_group_", "", gsub("_count", "", gsub(";", " to ", .))), starts_with("age_group")) %>%
+    rename_with(~ gsub("region: ", "", gsub("_count", "", .)), starts_with("region: ")) %>%
+    rename_with(~ gsub("_count", "", .), all_of(covariates)) %>%
+    mutate(across(.fns = as.character)) %>%
+    relocate("100 to 150", .after = "95 to 99") %>%
+    pivot_longer(!"group", names_to = "covariate", values_to = "value") %>%
+    pivot_wider(names_from = group, values_from = value) %>%
+    left_join(
+      table_char %>%
+        filter(group == "comparison") %>%
+        filter(study == study_id) %>%
+        select(-study, -comparison_id, -cdm_name) %>%
+        mutate(variable = if_else(variable == "sex", "Sex Female (%)", variable)) %>%
+        mutate(variable = if_else(variable == "age_group", "Age group", variable)) %>%
+        mutate(variable = if_else(variable == "region", "Region", variable)) %>%
+        mutate(variable = if_else(variable == "gp", "GP", variable)) %>%
+        mutate(variable = if_else(variable == "prior_history", "Prior history median [Q25-Q75]", variable)) %>%
+        mutate(variable = if_else(variable == "age", "Age median [Q25-Q75]", variable)) %>%
+        mutate(variable = if_else(variable == "number_visit", "Numebr visits median [Q25-Q75]", variable)) %>%
+        mutate(variable = if_else(variable == "number_pcrs", "Number PCRs median [Q25-Q75]", variable)) %>%
+        select("covariate" = "variable", "asmd" = "value"),
+      by = "covariate"
+    ) %>%
+    filter(!is.na(comparator) | !is.na(asmd)) %>%
+    mutate(covariate = gsub("_", " ", .data$covariate)) %>%
+    mutate(covariate = stringr::str_to_sentence(.data$covariate)) %>%
+    mutate(covariate = if_else(covariate == "Copd", "COPD", covariate)) %>%
+    mutate(covariate = if_else(covariate == "Gerd", "GERD", covariate)) %>%
+    mutate(covariate = if_else(covariate == "Number individuals", "Number individuals, N", covariate)) %>%
+    mutate(covariate = if_else(covariate == "Sex female (%)", "Sex, Female N(%)", covariate)) %>%
+    mutate(covariate = gsub(" median", ", median", .data$covariate)) 
+  
+  comorbidities_out <- c("Chronic liver disease", "Hiv", "Infertility", "Inflammarory bowel disease")
+  
+  tbl_char_temp <- tbl_char_temp %>%
+    filter(covariate != "Distinct counts") %>%
+    filter(covariate != "Individuals, median [q25 -q75]") %>%
+    mutate(covariate = gsub("q25-q75", "Q25-Q75", .data$covariate)) %>%
+    filter(!grepl(" to ", .data$covariate)) %>%
+    filter(!covariate %in% comorbidities_out) %>%
+    filter(!grepl("Gp", .data$covariate))
+  
+  ind <- which(tbl_char_temp$covariate == "Anxiety")     
+  tbl_char_temp <- tbl_char_temp[1:(ind-1),] %>%
+    full_join(tibble(covariate = "Comorbidities")) %>%
+    union_all(tbl_char_temp[ind:nrow(tbl_char_temp),]) %>%
+    mutate(covariate = if_else(covariate == "Comorbidities", "Comorbidities, N(%)", covariate)) %>%
+    mutate(asmd = round(asmd, 3)) 
+  
+  
+  return(tbl_char_temp)
+}
+
+getTableOne <- function(table_char, cve) {
+  studies <- unique(table_char$study)
+  if (table_char$cdm_name %>% unique() == "SIDIAP" & 
+      table_char$exposure_name %>% unique() == "astrazeneca vaccinated") {
+    studies <- c(2,3)
+  }
+  
+  table_char <- table_char %>%
+      select(-exposure_name, -comparator_name)
+  
+  count <- 1
+  for (ii in studies) {
+    if (cve) {
+      if (count == 1) {
+      if (ii == 1) {
+        tbl_char_studies <- table_one_study(table_char, ii) %>% 
+          rename("Cohort 1_BNT162b2" = "exposure",
+                 "Cohort 1_ChAdOx1" = "comparator",
+                 "Cohort 1_ASMD" = "asmd")
+      } else if (ii == 2) {
+        tbl_char_studies <- table_one_study(table_char, ii) %>% 
+          rename("Cohort 2_BNT162b2" = "exposure",
+                 "Cohort 2_ChAdOx1" = "comparator",
+                 "Cohort 2_ASMD" = "asmd")
+      } else if (ii == 3) {
+        tbl_char_studies <- table_one_study(table_char, ii) %>% 
+          rename("Cohort 3_BNT162b2" = "exposure",
+                 "Cohort 3_ChAdOx1" = "comparator",
+                 "Cohort 3_ASMD" = "asmd")
+      } else if (ii == 4) {
+        tbl_char_studies <- table_one_study(table_char, ii) %>% 
+          rename("Cohort 4_BNT162b2" = "exposure",
+                 "Cohort 4_ChAdOx1" = "comparator",
+                 "Cohort 4_ASMD" = "asmd")
+      }
+    } else {
+      if (ii == 1) {
+        tbl_char_studies <- tbl_char_studies %>%
+          left_join(table_one_study(table_char, ii) %>% 
+                      rename("Cohort 1_BNT162b2" = "exposure",
+                             "Cohort 1_ChAdOx1" = "comparator",
+                             "Cohort 1_ASMD" = "asmd"), by = "covariate")
+      } else if (ii == 2) {
+        tbl_char_studies <- tbl_char_studies %>%
+          left_join(table_one_study(table_char, ii) %>% 
+                      rename("Cohort 2_BNT162b2" = "exposure",
+                             "Cohort 2_ChAdOx1" = "comparator",
+                             "Cohort 2_ASMD" = "asmd"), by = "covariate")
+      } else if (ii == 3) {
+        tbl_char_studies <- tbl_char_studies %>%
+          left_join(table_one_study(table_char, ii) %>% 
+                      rename("Cohort 3_BNT162b2" = "exposure",
+                             "Cohort 3_ChAdOx1" = "comparator",
+                             "Cohort 3_ASMD" = "asmd"), by = "covariate")
+      } else if (ii == 4) {
+        tbl_char_studies <- tbl_char_studies %>%
+          left_join(table_one_study(table_char, ii) %>% 
+                      rename("Cohort 4_BNT162b2" = "exposure",
+                             "Cohort 4_ChAdOx1" = "comparator",
+                             "Cohort 4_ASMD" = "asmd"), by = "covariate")
+      }
+    }
+    } else {
+      if (count == 1) {
+      if (ii == 1) {
+        tbl_char_studies <- table_one_study(table_char, ii) %>% 
+          rename("Cohort 1_V" = "exposure",
+                 "Cohort 1_UV" = "comparator",
+                 "Cohort 1_ASMD" = "asmd")
+      } else if (ii == 2) {
+        tbl_char_studies <- table_one_study(table_char, ii) %>% 
+          rename("Cohort 2_V" = "exposure",
+                 "Cohort 2_UV" = "comparator",
+                 "Cohort 2_ASMD" = "asmd")
+      } else if (ii == 3) {
+        tbl_char_studies <- table_one_study(table_char, ii) %>% 
+          rename("Cohort 3_V" = "exposure",
+                 "Cohort 3_UV" = "comparator",
+                 "Cohort 3_ASMD" = "asmd")
+      } else if (ii == 4) {
+        tbl_char_studies <- table_one_study(table_char, ii) %>% 
+          rename("Cohort 4_V" = "exposure",
+                 "Cohort 4_UV" = "comparator",
+                 "Cohort 4_ASMD" = "asmd")
+      }
+    } else {
+      if (ii == 1) {
+        tbl_char_studies <- tbl_char_studies %>%
+          left_join(table_one_study(table_char, ii) %>% 
+                      rename("Cohort 1_V" = "exposure",
+                             "Cohort 1_UV" = "comparator",
+                             "Cohort 1_ASMD" = "asmd"), by = "covariate")
+      } else if (ii == 2) {
+        tbl_char_studies <- tbl_char_studies %>%
+          left_join(table_one_study(table_char, ii) %>% 
+                      rename("Cohort 2_V" = "exposure",
+                             "Cohort 2_UV" = "comparator",
+                             "Cohort 2_ASMD" = "asmd"), by = "covariate")
+      } else if (ii == 3) {
+        tbl_char_studies <- tbl_char_studies %>%
+          left_join(table_one_study(table_char, ii) %>% 
+                      rename("Cohort 3_V" = "exposure",
+                             "Cohort 3_UV" = "comparator",
+                             "Cohort 3_ASMD" = "asmd"), by = "covariate")
+      } else if (ii == 4) {
+        tbl_char_studies <- tbl_char_studies %>%
+          left_join(table_one_study(table_char, ii) %>% 
+                      rename("Cohort 4_V" = "exposure",
+                             "Cohort 4_UV" = "comparator",
+                             "Cohort 4_ASMD" = "asmd"), by = "covariate")
+      }
+    }
+    }
+    
+    
+    count <- count + 1
+  }
+  
+  border <- fp_border_default(width = 0.5, color = "gray")
+  
+  ind <- which(tbl_char_studies$covariate == "Comorbidities, N(%)")
+  
+  return(tbl_char_studies %>%
+           rename(" " = "covariate") %>%
+           flextable() %>%
+           separate_header() %>%
+           # vline(j = c('Cohort 1_ASMD', 'Cohort 2_ASMD', 'Cohort 3_ASMD'), 
+           # border = border, part = "body") %>%
+           hline(border = border) %>%
+           set_table_properties(width = 1, layout = "autofit") %>%
+           bold(part = "header") %>%
+           fontsize(size = 7, part = "header") %>%
+           fontsize(size = 7, part = "body")  %>%
+           padding(padding = 1, part = "all") %>%
+           align(align = "center", part = "header") %>%
+           align(align = "left", part = "body") %>%
+           bg(j = seq(2, ncol(tbl_char_studies), 2), bg = "#ededed") %>%
+           bold(i = c(1:8, ind), j = 1))
+}
+```
+
+```{r, warning=FALSE, results='hide', cache.comments=FALSE, message=FALSE}
+# prepare data ----
+asmd <- readFiles("asmd")
+cohort_details <- readFiles("cohort_details")
+comparisons <- readFiles("comparison")
+estimates <- readFiles("outcome_estimates")
+study_attrition <- readFiles("study_attrition")
+table_characteristics <- readFiles("table_characteristics_crude")
+table_characteristics_weighted <- readFiles("table_characteristics_weighted")
+survival_plot <- readFiles("survival_plot")
+
+comparison_new_name <- comparisons %>%
+  select(comparison_name) %>%
+  distinct() %>%
+  mutate(comparison_new_name = gsub("tudy_", "", comparison_name)) %>%
+  mutate(comparison_new_name = gsub("_", " ", comparison_new_name)) %>%
+  mutate(comparison_new_name = gsub(" unvaccinated", "", comparison_new_name)) %>%
+  mutate(comparison_new_name = gsub(" vaccinated", "", comparison_new_name)) %>%
+  mutate(comparison_new_name = gsub(" vaccine", "", comparison_new_name)) %>%
+  mutate(comparison_new_name = gsub(" vs ", " ", comparison_new_name)) %>%
+  separate(comparison_new_name, c("study", "vax1", "vax2")) %>%
+  mutate(vax2 = if_else(vax1 == vax2, "(VE)", paste0("- ", vax2, " (CVE)"))) %>%
+  mutate(comparison_new_name = paste(study, vax1, vax2)) %>%
+  select("comparison_name", "comparison_new_name")
+comparisons <- renameComparisonName(comparisons, comparison_new_name)
+comparisons <- comparisons %>%
+  filter(cdm_name != "SIDIAP" | grepl("\\(VE\\)", .data$comparison_name)) %>%
+  filter(skip == 0)
+study_attrition <- study_attrition %>%
+  mutate(excluded = if_else(is.na(excluded), 0, excluded)) %>%
+  mutate(number_observations = nice(number_observations)) %>%
+  mutate(excluded = nice(excluded))
+estimates <- estimates %>%
+  inner_join(comparisons, by = c("comparison_id", "cdm_name")) %>%
+  mutate(number_events_comparator = nice_perc(number_events_comparator, number_comparators, dec = 2),
+         number_events_exposure = nice_perc(number_events_exposure, number_exposures, dec = 2),
+    number_exposures = ifelse( number_exposures < 5,
+                                    "< 5",
+                                    nice(number_exposures)),
+         number_comparators = ifelse( number_comparators < 5,
+                                    "< 5",
+                                    nice(number_comparators)))
+survival_plot <- survival_plot %>%
+  inner_join(
+    comparisons %>% 
+      select(comparison_id, comparison_name, exposure_name, comparator_name, cdm_name),
+    by = c("comparison_id", "cdm_name")
+  ) %>%
+  mutate(
+    group = if_else(.data$group == "comparator", comparator_name, exposure_name),
+    status = if_else(.data$event %in% c("censor", "death"), 0, 1)
+  ) %>%
+  group_by(group, time, status, censoring_method, outcome_name, comparison_name, cdm_name) %>%
+  summarise(weight = sum(.data$count), .groups = "drop") %>%
+  inner_join(
+    comparisons %>%
+      mutate(comp = substr(comparison_name, 4, nchar(comparison_name))) %>%
+      filter(comp %in% c("any (VE)", "pfizer (VE)", "astrazeneca (VE)")) %>%
+      mutate(study = paste0("Study ", study)), 
+    by = c("cdm_name", "comparison_name"))  %>%
+  mutate(comp = factor(comp, 
+                           levels = c("any (VE)", "pfizer (VE)", "astrazeneca (VE)"), 
+                           labels = c("Any vaccine", "BNT162b2", "ChAdOx1")),
+         study = gsub("Study", "Cohort", .data$study))
+
+covariates <- c("anxiety", "asthma", "chronic_kidney_disease", "chronic_liver_disease", "copd", "dementia", "depressive_disorder", "diabetes", "gerd", "heart_failure", "hiv", "hypertension", "hypothyroidism", "infertility", "inflammarory_bowel_disease", "malignant_neoplastic_disease", "myocardial_infarction", "osteoporosis", "pneumonia", "rheumatoid_arthritis", "stroke", "venous_thromboembolism")
+covariates <- paste0(covariates, "_count")
+asmd <- asmd %>%
+  filter(!is.na(asmd_unadjusted) & !is.na(asmd_adjusted))
+table_characteristics_weighted <- table_characteristics_weighted %>%
+  inner_join(comparisons %>%
+               select(comparison_id, cdm_name, study, exposure_name, comparator_name), 
+             by = c("comparison_id", "cdm_name")) 
+table_characteristics <- table_characteristics %>%
+  inner_join(comparisons %>%
+               select(comparison_id, cdm_name, study, exposure_name, comparator_name), 
+             by = c("comparison_id", "cdm_name"))
+
+# data for the tables ----
+captions <- comparisons %>%
+  filter(skip != 1) %>%
+    filter(grepl("(VE)", .data$comparison_name)) %>%
+  select(cdm_name, exposure_name, comparator_name) %>%
+  mutate(nice_exposure_name = ifelse(exposure_name == "any vaccine vaccinated",
+                                     "any COVID-19 vaccine",
+                                     ifelse(exposure_name == "astrazeneca vaccinated",
+                                            "ChAdOx1 vaccine",
+                                            ifelse(exposure_name == "pfizer vaccinated",
+                                                   "BNT162b2 vaccine",
+                                                   "no")))) %>%
+  filter(nice_exposure_name != "no") %>%
+  filter(!grepl(" vaccinated", .data$comparator_name)) %>%
+  mutate(caption_w = paste0(": Characteristics of weighted populations in ", cdm_name, " database, stratified by staggered cohort and exposure status. Exposure is ", nice_exposure_name, "."),
+         caption_unw = paste0(": Characteristics of unweighted populations in ", cdm_name, " database, stratified by staggered cohort and exposure status. Exposure is ", nice_exposure_name, ".")) %>%
+  select(-nice_exposure_name) %>%
+  distinct() %>%
+  mutate(cve = FALSE) %>%
+  union_all(comparisons %>%
+  filter(skip != 1) %>%
+    filter(grepl("(CVE)", .data$comparison_name)) %>%
+    select(cdm_name, exposure_name, comparator_name) %>%
+    filter(comparator_name == "astrazeneca vaccinated") %>%
+    filter(exposure_name == "pfizer vaccinated") %>%
+    filter(cdm_name %in% c("AURUM", "GOLD")) %>%
+    mutate(caption_w = paste0(": Characteristics of weighted populations in ", cdm_name, " database, stratified by staggered cohort and vaccine brand."),
+           caption_unw = paste0(": Characteristics of unweighted populations in ", cdm_name, " database, stratified by staggered cohort and vaccine brand.")) %>%
+    distinct() %>%
+    mutate(cve = TRUE)
+  ) %>%
+  filter(!(cdm_name == "CORIVA" & exposure_name == "astrazeneca vaccinated")) %>%
+  mutate(cdm_name = factor(cdm_name, levels = c("AURUM", "GOLD", "SIDIAP", "CORIVA"))) %>%
+  arrange(cdm_name)
+
+outcomes <- c("longcovid_any_symptom_90_365", "longcovid_any_symptom_28_365", "longcovid_post_acute_covid19_90_365", "next_post_acute_covid19")
+
+captions_outcome <- captions %>%
+  select(-caption_w, -caption_unw, -cdm_name) %>%
+  distinct() %>%
+  cross_join(expand_grid(
+  outcome_name = outcomes,
+  censoring_method = c("leave", "leave+vaccine")
+)) %>%
+  mutate(outcome_name_nice = ifelse(outcome_name == outcomes[1],
+                                    "any long COVID symptoms between 90 and 365 days after SARS-CoV-2",
+                                    ifelse(outcome_name == outcomes[2],
+                                      "any long COVID symptoms between 28 and 365 days after SARS-CoV-2",
+                                      ifelse(outcome_name == outcomes[3],
+                                        "post-acute COVID-19 recorded between 90 and 365 days after SARS-CoV-2",
+                                        "post-acute COVID-19" ))),
+         nice_exposure_name = ifelse(exposure_name == "any vaccine vaccinated",
+                                     "any COVID-19 vaccine",
+                                     ifelse(exposure_name == "astrazeneca vaccinated",
+                                            "ChAdOx1 vaccine",
+                                            ifelse(exposure_name == "pfizer vaccinated",
+                                                   "BNT162b2 vaccine",
+                                                   "no"))),
+         censoring_name = ifelse(censoring_method == "leave",
+                                  " ",
+                                 "Follow-up ends at first vaccine dose after index date."
+
+         )) %>%
+  mutate(caption = ifelse(cve,
+                          paste0("Number of records for ", outcome_name_nice, " across cohorts and databases, stratified by vaccine brand. ", censoring_name),
+                          paste0("Number of records for ", outcome_name_nice, " across cohorts and databases, stratified by exposure status. Exposure is ", nice_exposure_name, ". ", censoring_name)))
+
+border <- fp_border_default(width = 0.5, color = "gray")
+
+captions_km <- captions_outcome %>%
+  mutate(caption = gsub("Number of records", "Kaplan-Meier plots depicting survival", .data$caption))
+
+```
+
+
+```{r, warning=FALSE, cache.comments=FALSE, message=FALSE, results='asis'}
+tab_index <- 1
+
+# Table One VE ----
+for (ii in 1:nrow(captions)) {
+  
+  if (captions$cdm_name[ii] == "AURUM" & captions$exposure_name[ii] == "any vaccine vaccinated") {
+    tbl_char_un <- table_characteristics %>%
+      filter(exposure_name == captions$exposure_name[ii]) %>%
+      filter(comparator_name == captions$comparator_name[ii]) %>%
+      filter(cdm_name == captions$cdm_name[ii]) 
+    
+    flextable_to_rmd(
+      getTableOne(tbl_char_un, captions$cve[ii]) %>%
+        set_caption(caption = paste0("Table ", tab_index, captions$caption_unw[ii])
+        )
+    )
+    tab_index <- tab_index + 1
+    
+    cat('<br>')
+    cat('<br>')
+    
+  } else {
+    
+    tbl_char <- table_characteristics_weighted %>%
+      filter(exposure_name == captions$exposure_name[ii]) %>%
+      filter(comparator_name == captions$comparator_name[ii]) %>%
+      filter(cdm_name == captions$cdm_name[ii]) 
+    
+    flextable_to_rmd(
+      getTableOne(tbl_char, captions$cve[ii]) %>%
+        set_caption(caption = paste0("Table ", tab_index, captions$caption_w[ii])
+        )
+    )
+    tab_index <- tab_index + 1
+    
+    cat('<br>')
+    cat('<br>')
+    
+    tbl_char_un <- table_characteristics %>%
+      filter(exposure_name == captions$exposure_name[ii]) %>%
+      filter(comparator_name == captions$comparator_name[ii]) %>%
+      filter(cdm_name == captions$cdm_name[ii]) 
+    
+    flextable_to_rmd(
+      getTableOne(tbl_char_un, captions$cve[ii]) %>%
+        set_caption(caption = paste0("Table ", tab_index, captions$caption_unw[ii])
+        )
+    )
+    tab_index <- tab_index + 1
+    
+    cat('<br>')
+    cat('<br>')
+  }
+}
+
+
+```
+
+```{r, warning=FALSE, cache.comments=FALSE, message=FALSE, results='asis'}
+# Table Outcome VE ----
+
+for (ii in 2:nrow(captions_outcome)) {
+if (captions_outcome$cve[ii]) {
+  tbl_outcome <- estimates %>% 
+  filter(outcome_name == captions_outcome$outcome_name[ii]) %>%
+  filter(exposure_name == captions_outcome$exposure_name[ii]) %>%
+  filter(comparator_name == captions_outcome$comparator_name[ii]) %>%
+  filter(censoring_method == captions_outcome$censoring_method[ii]) %>%
+  mutate(study = paste0("Cohort ", study)) %>%
+  filter(cdm_name != "CORIVA") %>%
+  select("Database name" = "cdm_name", 
+         "Staggered cohort" = "study", 
+         "BNT162b2_Individuals (N)" = "number_exposures",
+         "BNT162b2_Outcomes (N)" = "number_events_exposure",
+         "ChAdOx1_Individuals (N)" = "number_comparators",
+         "ChAdOx1_Outcomes (N)" = "number_events_comparator") %>%
+  distinct()
+} else {
+  tbl_outcome <- estimates %>% 
+  filter(outcome_name == captions_outcome$outcome_name[ii]) %>%
+  filter(exposure_name == captions_outcome$exposure_name[ii]) %>%
+  filter(comparator_name == captions_outcome$comparator_name[ii]) %>%
+  filter(censoring_method == captions_outcome$censoring_method[ii]) %>%
+  mutate(study = paste0("Cohort", study)) %>%
+  select("Database name" = "cdm_name", 
+         "Staggered cohort" = "study", 
+         "Vaccinated_Individuals (N)" = "number_exposures",
+         "Vaccinated_Outcomes (N)" = "number_events_exposure",
+         "Unvaccinated_Individuals (N)" = "number_comparators",
+         "Unvaccinated_Outcomes (N)" = "number_events_comparator") %>%
+  distinct()
+}
+
+
+if(captions_outcome$exposure_name[ii] == "astrazeneca vaccinated") {
+  tbl_outcome <- tbl_outcome %>%
+    filter(`Database name` != "CORIVA")
+}
+  
+  if(captions_km$outcome_name[ii] %in% c("longcovid_post_acute_covid19_90_365", "next_post_acute_covid19")) {
+    tbl_outcome <- tbl_outcome %>%
+    filter(`Database name` != "CORIVA") %>%
+      filter(`Database name` != "GOLD")
+    if (captions_km$cve[ii]) {
+      tbl_outcome <- NULL
+    }
+  }
+
+  
+  if (!is.null(tbl_outcome)) {
+  flextable_to_rmd(
+    tbl_outcome %>%
+      as_grouped_data(groups = c("Database name")) %>%
+      flextable() %>%
+      separate_header() %>%
+      hline(border = border) %>%
+      set_table_properties(width = 1, layout = "autofit") %>%
+      bold(part = "header") %>%
+      bold(j = 1, part = "body") %>%
+      bg(j = seq(2, ncol(tbl_outcome), 2), bg = "#ededed") %>%
+      fontsize(size = 9, part = "header") %>%
+      fontsize(size = 8, part = "body")  %>%
+      padding(padding = 1, part = "all") %>%
+      align(align = "center", part = "header") %>%
+      align(align = "left", part = "body") %>%
+      set_caption(caption = paste0("Table ", tab_index, ": ", captions_outcome$caption[ii]))
+  )
+  tab_index <- tab_index + 1
+
+cat('<br>')
+cat('<br>')
+}
+
+}
+
+```
+
+```{r, warning=FALSE, cache.comments=FALSE, message=FALSE, results='asis'}
+#| label: figure
+#| fig-align: center
+#| fig-width: 10
+#| fig-asp: 0.62
+#| out-width: "90%"
+#| fig-dpi: 500
+#| fig.retina: 2
+
+
+num_fig <- 1
+
+for(ii in 1:nrow(captions_km)) {
+  data <- survival_plot %>%
+    filter(censoring_method == captions_km$censoring_method[ii]) %>%
+    filter(outcome_name == captions_km$outcome_name[ii]) %>%
+    filter(exposure_name == captions_km$exposure_name[ii]) %>%
+    filter(comparator_name == captions_km$comparator_name[ii]) 
+  
+  if (captions_km$cve[ii]) {
+    data <- data %>%
+      mutate(cohort = ifelse(grepl("unvaccinated", .data$group), "ChAdOx1", "BNT162b2"))
+  } else {
+    data <- data %>%
+      mutate(cohort = ifelse(grepl("unvaccinated", .data$group), "Unvaccinated", "Vaccinated"))
+  }
+  
+  if(captions_outcome$exposure_name[ii] == "astrazeneca vaccinated" | captions_km$cve[ii]) {
+  data <- data %>%
+    filter(cdm_name != "CORIVA")
+  }
+  
+  if(captions_km$outcome_name[ii] %in% c("longcovid_post_acute_covid19_90_365", "next_post_acute_covid19")) {
+    data <- data %>%
+    filter(cdm_name != "CORIVA") %>%
+      filter(cdm_name != "GOLD")
+    if (captions_km$cve[ii]) {
+      if (nrow(data) > 1) {
+        data <- data[1,]
+      }
+    }
+  }
+  
+  if (nrow(data) > 2) {
+  fit <- survfit(Surv(time, status) ~ cohort + cdm_name + study, data = data, weights = weight)
+  
+  surv_data <- surv_summary(fit, data) %>%
+    mutate(cdm_name = factor(cdm_name, level = c("GOLD", "SIDIAP", "CORIVA")))
+  
+  ylim_lower <- surv_data %>%
+    group_by(cdm_name) %>%
+    select(surv) %>% 
+    filter(surv == min(surv)) %>% 
+    distinct() 
+  
+  y <- list()
+  for (num in 1:length(unique(surv_data$cdm_name))) {
+    y[[num]] <- eval(parse(text = 
+                           paste0('cdm_name =="', ylim_lower$cdm_name[num], '"~ scale_y_continuous(limits = c(', ylim_lower$surv[num], ', 1), breaks = c(', paste(matlab::linspace(ylim_lower$surv[num],1,4), collapse= ", "), '), labels = c(', paste(sprintf(matlab::linspace(ylim_lower$surv[num],1,4), fmt = '%#.4f'), collapse = ","), '))')))
+    
+  }
+  ggsurv <- ggsurvplot(fit, 
+                       data = data, 
+                       censor = FALSE,
+                       color = "cohort",
+                       palette = c("#8fb996", "#457b9d"))
+  
+  
+  cat(gsub(".  ",".",paste0("Figure ", num_fig, ": ", captions_km$caption[ii])))
+  
+  print(ggsurv$plot + 
+          theme_gray() + 
+          theme(legend.position = "right",
+                legend.title = element_blank())+
+          facet_grid(cdm_name ~ study, scales = "free_y") +
+          facetted_pos_scales(y = y))
+  
+  cat('\n')
+  cat('\n')
+  
+  num_fig <- num_fig + 1
+}
+}
+```
+
+```

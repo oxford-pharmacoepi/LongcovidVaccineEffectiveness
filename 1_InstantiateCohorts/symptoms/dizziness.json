@@ -1,0 +1,117 @@
+{
+ "cdmVersionRange": ">=5.0.0",
+"PrimaryCriteria": {
+ "CriteriaList": [
+ {
+ "ConditionOccurrence": {
+ "CodesetId":                       11,
+"ConditionTypeExclude": false 
+} 
+} 
+],
+"ObservationWindow": {
+ "PriorDays":                        0,
+"PostDays":                        0 
+},
+"PrimaryCriteriaLimit": {
+ "Type": "All" 
+} 
+},
+"ConceptSets": [
+ {
+ "id":                       11,
+"name": "[Long COVID] Dizziness - PHOEBE'd",
+"expression": {
+ "items": [
+ {
+ "concept": {
+ "CONCEPT_ID":                  4011939,
+"CONCEPT_NAME": "Drug-induced vertigo",
+"STANDARD_CONCEPT": "S",
+"STANDARD_CONCEPT_CAPTION": "Standard",
+"INVALID_REASON": "V",
+"INVALID_REASON_CAPTION": "Valid",
+"CONCEPT_CODE": "103297000",
+"DOMAIN_ID": "Condition",
+"VOCABULARY_ID": "SNOMED",
+"CONCEPT_CLASS_ID": "Clinical Finding" 
+},
+"isExcluded": true,
+"includeDescendants": false,
+"includeMapped": false 
+},
+{
+ "concept": {
+ "CONCEPT_ID":                  4012876,
+"CONCEPT_NAME": "Vertigo preceded by prolonged dental work or oral surgery",
+"STANDARD_CONCEPT": "S",
+"STANDARD_CONCEPT_CAPTION": "Standard",
+"INVALID_REASON": "V",
+"INVALID_REASON_CAPTION": "Valid",
+"CONCEPT_CODE": "103295008",
+"DOMAIN_ID": "Condition",
+"VOCABULARY_ID": "SNOMED",
+"CONCEPT_CLASS_ID": "Clinical Finding" 
+},
+"isExcluded": true,
+"includeDescendants": false,
+"includeMapped": false 
+},
+{
+ "concept": {
+ "CONCEPT_ID":                  4223938,
+"CONCEPT_NAME": "Dizziness",
+"STANDARD_CONCEPT": "S",
+"STANDARD_CONCEPT_CAPTION": "Standard",
+"INVALID_REASON": "V",
+"INVALID_REASON_CAPTION": "Valid",
+"CONCEPT_CODE": "404640003",
+"DOMAIN_ID": "Condition",
+"VOCABULARY_ID": "SNOMED",
+"CONCEPT_CLASS_ID": "Clinical Finding" 
+},
+"isExcluded": false,
+"includeDescendants": true,
+"includeMapped": false 
+},
+{
+ "concept": {
+ "CONCEPT_ID":                  4297376,
+"CONCEPT_NAME": "Lightheadedness",
+"STANDARD_CONCEPT": "S",
+"STANDARD_CONCEPT_CAPTION": "Standard",
+"INVALID_REASON": "V",
+"INVALID_REASON_CAPTION": "Valid",
+"CONCEPT_CODE": "386705008",
+"DOMAIN_ID": "Condition",
+"VOCABULARY_ID": "SNOMED",
+"CONCEPT_CLASS_ID": "Clinical Finding" 
+},
+"isExcluded": false,
+"includeDescendants": true,
+"includeMapped": false 
+} 
+] 
+} 
+} 
+],
+"QualifiedLimit": {
+ "Type": "All" 
+},
+"ExpressionLimit": {
+ "Type": "All" 
+},
+"InclusionRules": [],
+"EndStrategy": {
+ "DateOffset": {
+ "DateField": "StartDate",
+"Offset":                        0 
+} 
+},
+"CensoringCriteria": [],
+"CollapseSettings": {
+ "CollapseType": "ERA",
+"EraPad":                        0 
+},
+"CensorWindow": {} 
+}
