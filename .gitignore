@@ -50,3 +50,8 @@ rsconnect/
 
 # data for the shiny
 5_ShinyApp/data/
+5_ShinyApp/figures/
+Data/dataSIDIAP/
+Data/oldDataCPRD/
+Results_AURUM/
+Results_GOLD/

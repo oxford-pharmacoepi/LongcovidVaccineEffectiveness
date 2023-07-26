@@ -28,3 +28,14 @@ comparisons <- tibble(
   mutate(comparison_id = row_number()) %>%
   mutate(comparison_name = paste0("Study_", study, "_", gsub(" ", "_", exposure_name), "_vs_", gsub(" ", "_", comparator_name))) %>%
   select(comparison_id, comparison_name, study, exposure_cohort_id, exposure_name, comparator_cohort_id, comparator_name)
+
+if (cdmName(cdm) == "SIDIAP") {
+  comparisons <- comparisons %>%
+    filter(grepl("unvaccinated", exposure_name) | grepl("unvaccinated", comparator_name)) %>%
+    filter(!grepl("moderna", exposure_name) & !grepl("moderna", comparator_name)) %>%
+    filter(!grepl("janssen", exposure_name) & !grepl("janssen", comparator_name))
+} else if (grepl("CPRD", cdmName(cdm))) {
+  comparisons <- comparisons %>%
+    filter(!grepl("moderna", exposure_name) & !grepl("moderna", comparator_name)) %>%
+    filter(!grepl("janssen", exposure_name) & !grepl("janssen", comparator_name))
+}

@@ -12,15 +12,6 @@ postAcuteCovidId <- cohortSet(cdm[[symptomsCohortName]]) %>%
 unbalancedCovariates <- read_csv(here(results, paste0("asmd_", cdmName(cdm), ".csv")), show_col_types = FALSE) %>%
   filter(asmd_adjusted > 0.1) %>%
   filter(variable != "gp")
-if (nrow(unbalancedCovariates) > 0) {
-  unbalancedCovariates <- unbalancedCovariates %>%
-    rowwise() %>%
-    mutate(variable = if_else(
-      grepl(")_window:", variable), 
-      getCovariateId(variable),
-      variable
-    ))
-}
 
 longcovidCohortSet <- cohortSet(cdm[[longcovidCohortName]]) %>% collect()
 ncoCohortSet <- cohortSet(cdm[[ncoCohortName]]) %>% collect()
@@ -81,11 +72,7 @@ for (comparison_id in comparisonIds) {
     inner_join(events, by = c("subject_id", "cohort_start_date")) %>%
     collect() %>%
     mutate(comparison_id = .env$comparison_id) %>%
-    mutate(leave_db = if_else(
-      .env$unvaccinated & .data$group == "comparator", 
-      pmin(.data$leave_db, .data$next_vaccine, na.rm = T), 
-      .data$leave_db  
-    ))
+    mutate(censor_vaccine = .env$unvaccinated & .data$group == "comparator")
   
   unbalancedCovariatesComparison <- unbalancedCovariates %>%
     filter(.data$comparison_id == .env$comparison_id) %>%
@@ -167,10 +154,23 @@ for (comparison_id in comparisonIds) {
         )
       ) %>%
       mutate(comparison_id = comparison_id)
+    x$censor_data <- x$censor_data %>%
+      filter(
+        outcome_name %in% c(
+          "longcovid_post_acute_covid19_28_365", 
+          "longcovid_post_acute_covid19_90_365", 
+          "longcovid_any_symptom_28_365", 
+          "longcovid_any_symptom_90_365", 
+          "next_post_acute_covid19",
+          "next_covid"
+        )
+      ) %>%
+      mutate(comparison_id = comparison_id)
     log4r::info(logger, paste0("finished comparison:", comparison_id))
     readr::write_csv(x$result, here::here(results, tempData, paste0("estimates_comparison_", comparison_id, ".csv")))
-    readr::write_csv(x$survival_plot, here::here(results, tempData, paste0("survival_comparison_", comparison_id, ".csv"))
-    )
+    readr::write_csv(x$survival_plot, here::here(results, tempData, paste0("survival_comparison_", comparison_id, ".csv")))
+    readr::write_csv(x$censor_data, here::here(results, tempData, paste0("censor_data_", comparison_id, ".csv")))
+    
   },
   error = function(e) {
     log4r::info(logger, paste0("failed comparison:", comparison_id))
@@ -183,6 +183,13 @@ survivalData <- lapply(comparisonIds, function(x) {
   bind_rows() %>%
   mutate(cdm_name = cdmName(cdm)) %>%
   write_csv(here(results, paste0("survival_plot_", cdmName(cdm), ".csv")))
+
+censorDate <- lapply(comparisonIds, function(x) {
+  read_csv(here(results, tempData, paste0("censor_data_", x, ".csv")), show_col_types = FALSE) 
+}) %>%
+  bind_rows() %>%
+  mutate(cdm_name = cdmName(cdm)) %>%
+  write_csv(here(results, paste0("censor_data_", cdmName(cdm), ".csv")))
 
 dataEstimates <- lapply(comparisonIds, function(x) {
   read_csv(here(results, tempData, paste0("estimates_comparison_", x, ".csv")), show_col_types = FALSE)

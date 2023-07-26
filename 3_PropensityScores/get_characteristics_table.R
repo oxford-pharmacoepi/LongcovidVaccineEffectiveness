@@ -175,7 +175,7 @@ for (k in comparisons$comparison_id) {
           mutate(group = "comparison") %>%
           mutate(value = as.character(value))
       ) %>%
-      mutate(comparison_id = comparisons$comparison_id[comparisons$comparison_id == k])
+      mutate(comparison_id = k)
     
     tableCharacteristics <- tableCharacteristics %>%
       union_all(tableCharacteristics.k)

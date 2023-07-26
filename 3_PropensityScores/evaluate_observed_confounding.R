@@ -1,17 +1,20 @@
 all_asmd <- NULL
 ps_all <- NULL
 
-for (k in 1:nrow(comparisons)) {
-  if (comparisons$skip[k] == 0) {
-    load(paste0(psFolder, "/ps_model_", comparisons$comparison_id[k], ".RData"))
+for (k in comparisons$comprison_id) {
+  if (comparisons$skip[omparisons$comprison_id == k] == 0) {
+    load(paste0(psFolder, "/ps_model_", k, ".RData"))
     rm(glmResult)
     load(here(results, tempData, "features.RData"))
     load(here(results, tempData, "cohort.RData"))
     
     cohort.k <- cdm[[indexCohortName]] %>%
-      filter(cohort_definition_id %in% !!c(comparisons$exposure_cohort_id[k], comparisons$comparator_cohort_id[k])) %>%
+      filter(cohort_definition_id %in% !!c(
+        comparisons$exposure_cohort_id[comparisons$comprison_id == k], 
+        comparisons$comparator_cohort_id[k]
+      )) %>%
       mutate(group = if_else(
-        cohort_definition_id == !!comparisons$exposure_cohort_id[k],
+        cohort_definition_id == !!comparisons$exposure_cohort_id[comparisons$comprison_id == k],
         "exposure",
         "comparator"
       )) %>% 

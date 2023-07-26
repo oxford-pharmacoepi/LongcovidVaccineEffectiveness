@@ -189,14 +189,14 @@ for (k in comparisons$comparison_id) {
       selectedLassoFeatures, 
       countsFeatures, 
       glmResult, 
-      file = paste0(psFolder, "/ps_model_", comparisons$comparison_id[comparisons$comparison_id == k], ".RData")
+      file = paste0(psFolder, "/ps_model_", k, ".RData")
     )
     
     psCoefficients <- psCoefficients %>%
       union_all(
         coefficients(glmResult) %>% 
           as_tibble(rownames = "covariate") %>%
-          mutate(comparison_id = comparisons$comparison_id[comparisons$comparison_id == k]) %>%
+          mutate(comparison_id = k) %>%
           relocate("comparison_id")
       )
     

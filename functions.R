@@ -684,20 +684,18 @@ firstEventId <- function(x, columns) {
 }
 
 createSurvivalTable <- function(x, events, censoring, covariates = NULL, start = "cohort_start_date") {
-  if (length(censoring) == 1) {
-    x <- mutate(x, "censor" = .data[[censoring]])
-  } else {
-    x <- mutate(x, "censor" = reduce(select(x, all_of(censoring)), pmin, na.rm = TRUE))
-  }
+  x <- firstEventId(x, censoring) %>%
+    rename(censor = first_event, censor_reason = event_id) %>%
+    mutate(censor_reason = .env$censoring[.data$censor_reason])
   x <- firstEventId(x, c(events, "censor")) %>%
     mutate(event_id = if_else(event_id > !!length(events), 0, event_id)) %>%
     mutate(fine_gray = factor(event_id, 0:length(events), labels=c("censor", events))) %>%
     mutate(cox = as.numeric(if_else(event_id == 1, 1, 0))) %>%
     mutate(time = .data$first_event - .data[[start]]) %>%
-    select(all_of(c("group", "weight", "time", "cox", "fine_gray", covariates)))
+    select(all_of(c("group", "weight", "time", "cox", "fine_gray", "censor_reason", covariates)))
 }
 
-outcomeModel <- function(x, covariates = NULL, unadjusted = FALSE, model = "finegray") {
+outcomeModel <- function(x, covariates = NULL, unadjusted = FALSE, model = NULL) {
   
   if (model == "cox") {
     runCox <- TRUE
@@ -942,17 +940,18 @@ getCovariateId <- function(x) {
   }
 }
 
-getEstimates <- function(x, outcomes, censors, covariates, unadjusted = FALSE, model = "finegray") {
+getEstimates <- function(x, outcomes, censors, covariates, unadjusted = FALSE, model = NULL) {
   result <- NULL
   survivalPlot <- NULL
+  censorData <- NULL
   for (outcome_name in outcomes) {
     for (censoring_method in censors) {
       censor <- switch(
         censoring_method,
-        "leave" = "leave_db",
-        "leave+covid" = c("leave_db", "next_covid"),
-        "leave+vaccine" = c("leave_db", "next_vaccine"),
-        "leave+covid+vaccine" = c("leave_db", "next_covid", "next_vaccine")
+        "leave" = c("leave_db", "death"),
+        "leave+covid" = c("leave_db", "next_covid", "death"),
+        "leave+vaccine" = c("leave_db", "next_vaccine", "death"),
+        "leave+covid+vaccine" = c("leave_db", "next_covid", "next_vaccine", "death")
       )
       survivalTable <- createSurvivalTable(x, c(outcome_name, "death"), censor, covariates)
       result <- result %>%
@@ -977,9 +976,32 @@ getEstimates <- function(x, outcomes, censors, covariates, unadjusted = FALSE, m
             covariates = paste0(covariates, collapse = "; ")
           )
         )
+      censorData <- censorData %>%
+        union_all(
+          survivalTable %>%
+            group_by(group) %>%
+            summarise(
+              number_individuals = n(),
+              censored = sum(.data$fine_gray == 0),
+              censor_leave = sum(.data$censor_reason == "leave_db"),
+              censor_death = sum(.data$censor_reason == "death"),
+              censor_vaccine = sum(.data$censor_reason == "next_vaccine"),
+              censor_covid = sum(.data$censor_reason == "next_covid"),
+              time_till_censor_mean = mean(.data$time[.data$fine_gray == 0]),
+              time_till_censor_sd = sd(.data$time[.data$fine_gray == 0]),
+              time_till_censor_median = median(.data$time[.data$fine_gray == 0]),
+              time_till_censor_q25 = quantile(.data$time[.data$fine_gray == 0], 0.75),
+              time_till_censor_q75 = quantile(.data$time[.data$fine_gray == 0], 0.75)
+            ) %>%
+            dplyr::mutate(
+              outcome_name = outcome_name,
+              censoring_method = censoring_method,
+              covariates = paste0(covariates, collapse = "; ")
+            )
+        )
     }
   }
-  x <- list("result" = result, "survival_plot" = survivalPlot)
+  x <- list("result" = result, "survival_plot" = survivalPlot, "censor_data" = censorData)
   return(x)
 }
 
