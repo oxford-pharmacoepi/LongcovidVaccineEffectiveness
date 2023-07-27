@@ -68,8 +68,8 @@ for (k in comparisons$comparison_id) {
   comparisons$number_exposures[comparisons$comparison_id == k] <- sum(cohort.k$group == "exposure")
   comparisons$number_comparators[comparisons$comparison_id == k] <- sum(cohort.k$group == "comparator")
   
-  if (sum(cohort.k$group == "exposure") < 1 || 
-      sum(cohort.k$group == "comparator") < 1) {
+  if (sum(cohort.k$group == "exposure") < 10 || 
+      sum(cohort.k$group == "comparator") < 10) {
     
     comparisons$skip[comparisons$comparison_id == k] <- 1
     cat(paste0("Skipping comparison ", k, ". A group is empty.\n"))

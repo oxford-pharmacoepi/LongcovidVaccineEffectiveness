@@ -684,6 +684,13 @@ firstEventId <- function(x, columns) {
 }
 
 createSurvivalTable <- function(x, events, censoring, covariates = NULL, start = "cohort_start_date") {
+  if (!("next_vaccine" %in% censoring)) {
+    censoring <- c(censoring, "next_vaccine")
+    x <- x %>%
+      mutate(next_vaccine = if_else(
+        .data$unvaccinated, .data$next_vaccine, as.Date(NA)
+      ))
+  }
   x <- firstEventId(x, censoring) %>%
     rename(censor = first_event, censor_reason = event_id) %>%
     mutate(censor_reason = .env$censoring[.data$censor_reason])
@@ -695,12 +702,12 @@ createSurvivalTable <- function(x, events, censoring, covariates = NULL, start =
     select(all_of(c("group", "weight", "time", "cox", "fine_gray", "censor_reason", covariates)))
 }
 
-outcomeModel <- function(x, covariates = NULL, unadjusted = FALSE, model = NULL) {
+outcomeModel <- function(x, covariates = NULL, unadjusted = FALSE, model = c("finegray", "cox")) {
   
-  if (model == "cox") {
+  if (length(model) == 1 && model == "cox") {
     runCox <- TRUE
     runFinegray <- FALSE
-  } else if (model == "finegray") {
+  } else if (length(model) == 1 && model == "finegray") {
     runCox <- FALSE
     runFinegray <- TRUE
   } else {
@@ -940,7 +947,7 @@ getCovariateId <- function(x) {
   }
 }
 
-getEstimates <- function(x, outcomes, censors, covariates, unadjusted = FALSE, model = NULL) {
+getEstimates <- function(x, outcomes, censors, covariates, unadjusted = FALSE, model = c("finegray", "cox")) {
   result <- NULL
   survivalPlot <- NULL
   censorData <- NULL
@@ -979,19 +986,31 @@ getEstimates <- function(x, outcomes, censors, covariates, unadjusted = FALSE, m
       censorData <- censorData %>%
         union_all(
           survivalTable %>%
+            mutate(time = as.numeric(.data$time)) %>%
             group_by(group) %>%
             summarise(
               number_individuals = n(),
-              censored = sum(.data$fine_gray == 0),
-              censor_leave = sum(.data$censor_reason == "leave_db"),
-              censor_death = sum(.data$censor_reason == "death"),
-              censor_vaccine = sum(.data$censor_reason == "next_vaccine"),
-              censor_covid = sum(.data$censor_reason == "next_covid"),
-              time_till_censor_mean = mean(.data$time[.data$fine_gray == 0]),
-              time_till_censor_sd = sd(.data$time[.data$fine_gray == 0]),
-              time_till_censor_median = median(.data$time[.data$fine_gray == 0]),
-              time_till_censor_q25 = quantile(.data$time[.data$fine_gray == 0], 0.75),
-              time_till_censor_q75 = quantile(.data$time[.data$fine_gray == 0], 0.75)
+              censored = sum(.data$cox == 0),
+              censor_leave = sum(.data$censor_reason == "leave_db" & .data$cox == 0),
+              censor_death = sum(.data$censor_reason == "death" & .data$cox == 0),
+              censor_vaccine = sum(.data$censor_reason == "next_vaccine" & .data$cox == 0),
+              censor_covid = sum(.data$censor_reason == "next_covid" & .data$cox == 0),
+              time_till_censor_mean = mean(.data$time[.data$cox == 0]),
+              time_till_censor_sd = sd(.data$time[.data$cox == 0]),
+              time_till_censor_median = median(.data$time[.data$cox == 0]),
+              time_till_censor_q25 = quantile(.data$time[.data$cox == 0], 0.25),
+              time_till_censor_q75 = quantile(.data$time[.data$cox == 0], 0.75),
+              weighted_number_individuals = sum(.data$weight),
+              weighted_censored = sum(.data$weight[.data$cox == 0]),
+              weighted_censor_leave = sum(.data$weight[.data$censor_reason == "leave_db" & .data$cox == 0]),
+              weighted_censor_death = sum(.data$weight[.data$censor_reason == "death" & .data$cox == 0]),
+              weighted_censor_vaccine = sum(.data$weight[.data$censor_reason == "next_vaccine" & .data$cox == 0]),
+              weighted_censor_covid = sum(.data$weight[.data$censor_reason == "next_covid" & .data$cox == 0]),
+              weighted_time_till_censor_mean = sum(.data$time[.data$cox == 0]*.data$weight[.data$cox == 0])/sum(.data$weight[.data$cox == 0]),
+              weighted_time_till_censor_sd = sqrt(Hmisc::wtd.var(.data$time[.data$cox == 0], .data$weight[.data$cox == 0])),
+              weighted_time_till_censor_median = Hmisc::wtd.quantile(.data$time[.data$cox == 0], .data$weight[.data$cox == 0], 0.5),
+              weighted_time_till_censor_q25 = Hmisc::wtd.quantile(.data$time[.data$cox == 0], .data$weight[.data$cox == 0], 0.25),
+              weighted_time_till_censor_q75 = Hmisc::wtd.quantile(.data$time[.data$cox == 0], .data$weight[.data$cox == 0], 0.75)
             ) %>%
             dplyr::mutate(
               outcome_name = outcome_name,

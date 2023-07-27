@@ -56,11 +56,6 @@ for (comparison_id in comparisonIds) {
     filter(.data$comparison_id == .env$comparison_id) %>%
     pull("comparator_cohort_id")
   
-  unvaccinated <- grepl(
-    "unvaccinated",
-    comparisons$comparator_name[comparisons$comparison_id == comparison_id]
-  )
-  
   collectedCohort <-  cdm[[indexCohortName]] %>%
     filter(cohort_definition_id %in% !!c(exposure_cohort_id, comparator_cohort_id)) %>%
     mutate(group = if_else(
@@ -68,12 +63,14 @@ for (comparison_id in comparisonIds) {
       "exposure",
       "comparator"
     )) %>% 
-    select("group", "subject_id", "cohort_start_date") %>%
+    inner_join(attr(cdm[[indexCohortName]], "cohort_set"), by = "cohort_definition_id") %>%
+    select("group", "subject_id", "cohort_start_date", "cohort_name") %>%
     inner_join(events, by = c("subject_id", "cohort_start_date")) %>%
     collect() %>%
+    mutate(unvaccinated = grepl("unvaccinated", .data$cohort_name)) %>%
     mutate(comparison_id = .env$comparison_id) %>%
-    mutate(censor_vaccine = .env$unvaccinated & .data$group == "comparator")
-  
+    select(-"cohort_name")
+    
   unbalancedCovariatesComparison <- unbalancedCovariates %>%
     filter(.data$comparison_id == .env$comparison_id) %>%
     pull("variable")

@@ -1,7 +1,7 @@
 indexCohortSet <- cohortSet(cdm[[indexCohortName]]) %>%
   collect()
-eci <- c(1:3, 2)
-cci <- c(6:8, 3)
+eci <- c(1:5, 3, 3, 3)
+cci <- c(6:10, 2, 4, 5)
 comparisons <- tibble(
   exposure_cohort_id = c(eci, eci+10, eci+20, eci+30),
   comparator_cohort_id = c(cci, cci+10, cci+20, cci+30)
@@ -31,11 +31,11 @@ comparisons <- tibble(
 
 if (cdmName(cdm) == "SIDIAP") {
   comparisons <- comparisons %>%
-    filter(grepl("unvaccinated", exposure_name) | grepl("unvaccinated", comparator_name)) %>%
-    filter(!grepl("moderna", exposure_name) & !grepl("moderna", comparator_name)) %>%
-    filter(!grepl("janssen", exposure_name) & !grepl("janssen", comparator_name))
-} else if (grepl("CPRD", cdmName(cdm))) {
+    filter(grepl("unvaccinated", comparison_name)) %>%
+    filter(!grepl("moderna", comparison_name)) %>%
+    filter(!grepl("janssen", comparison_name))
+} else if (cdmName(cdm) %in% c("GOLD", "AURUM")) {
   comparisons <- comparisons %>%
-    filter(!grepl("moderna", exposure_name) & !grepl("moderna", comparator_name)) %>%
-    filter(!grepl("janssen", exposure_name) & !grepl("janssen", comparator_name))
+    filter(!grepl("moderna", comparison_name)) %>%
+    filter(!grepl("janssen", comparison_name))
 }
