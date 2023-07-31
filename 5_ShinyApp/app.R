@@ -91,6 +91,7 @@ study_attrition <- readFiles("study_attrition")
 table_characteristics <- readFiles("table_characteristics_crude")
 table_characteristics_weighted <- readFiles("table_characteristics_weighted")
 survival_plot <- readFiles("survival_plot")
+censor_data <- readFiles("censor_data")
 
 comparison_new_name <- comparisons %>%
   select(comparison_name) %>%
@@ -149,7 +150,7 @@ nco <- nco %>%
 estimates <- estimates %>%
   inner_join(comparisons, by = c("comparison_id", "cdm_name")) %>%
   filter(outcome_group %in% c("nco", "longcovid28", "longcovid90", "sensitivity")) %>%
-  filter(outcome_name != "next_covid") %>%
+  #filter(outcome_name != "next_covid") %>%
   mutate(outcome_name = if_else(outcome_name == "next_post_acute_covid19", "post_acute_covid19", outcome_name))
 covariates <- c("anxiety", "asthma", "chronic_kidney_disease", "chronic_liver_disease", "copd", "dementia", "depressive_disorder", "diabetes", "gerd", "heart_failure", "hiv", "hypertension", "hypothyroidism", "infertility", "inflammarory_bowel_disease", "malignant_neoplastic_disease", "myocardial_infarction", "osteoporosis", "pneumonia", "rheumatoid_arthritis", "stroke", "venous_thromboembolism")
 covariates <- paste0(covariates, "_count")
@@ -228,6 +229,33 @@ survival_plot <- survival_plot %>%
   group_by(group, time, status, censoring_method, outcome_name, comparison_name, cdm_name) %>%
   summarise(weight = sum(.data$count), .groups = "drop")
 
+censor_data <- censor_data %>%
+  pivot_longer(!c("group", "outcome_name", "censoring_method", "covariates", "comparison_id", "cdm_name")) %>%
+  mutate(analysis = if_else(grepl("weighted", .data$name), "weighted", "unweighted")) %>%
+  mutate(name = gsub("weighted_", "", .data$name)) %>%
+  mutate(value = round(.data$value)) %>%
+  pivot_wider() %>%
+  mutate(
+    "number_outcomes" = .data$number_individuals - .data$censored,
+    "% censored" = round(100*.data$censored/.data$number_individuals, 2),
+    "leave (%)" = round(100*.data$censor_leave/.data$number_individuals, 2),
+    "death(%)" = round(100*.data$censor_death/.data$number_individuals, 2),
+    "vaccine (%)" = round(100*.data$censor_vaccine/.data$number_individuals, 2),
+    "time censor; mean (SD)" = paste0(.data$time_till_censor_mean, " (", .data$time_till_censor_sd, ")"),
+    "time censor; median [Q25-Q75]" = paste0(.data$time_till_censor_median, " [", .data$time_till_censor_q25, "-", .data$time_till_censor_q75, ")")
+  ) %>%
+  select(-c(censored, censor_leave, censor_death, censor_vaccine, censor_covid, time_till_censor_mean, time_till_censor_sd, time_till_censor_median, time_till_censor_q25, time_till_censor_q75)) %>%
+  inner_join(
+    comparisons %>% 
+      select(comparison_id, comparison_name, exposure_name, comparator_name, cdm_name),
+    by = c("comparison_id", "cdm_name")
+  ) %>%
+  mutate(
+    group = if_else(.data$group == "comparator", comparator_name, exposure_name)
+  ) %>%
+  relocate("comparison_name") %>%
+  select(-c("exposure_name", "comparator_name", "covariates", "comparison_id"))
+
 # ui shiny ----
 ui <- dashboardPage(
   dashboardHeader(title = "Menu"),
@@ -249,7 +277,8 @@ ui <- dashboardPage(
       menuItem("Propensity scores", tabName = "ps_scores"),
       menuItem("Negative control outcomes", tabName = "nco"),
       menuItem("Estimates", tabName = "estimates"),
-      menuItem("Kaplan-Meier plots", tabName = "km")
+      menuItem("Kaplan-Meier plots", tabName = "km"),
+      menuItem("Censor data", tabName = "censor")
     )
   ),
   ## body ----
@@ -776,6 +805,72 @@ ui <- dashboardPage(
           )
         ),
         plotlyOutput("km_plot", height = "600px", width = "1000px") #%>% withSpinner()
+      ),
+      ### censor data ----
+      tabItem(
+        tabName = "censor",
+        h3("Censoring information"),
+        div(
+          style = "display: inline-block;vertical-align:top; width: 150px;",
+          pickerInput(
+            inputId = "censor_db",
+            label = "Database name",
+            choices = unique(censor_data$cdm_name),
+            selected = unique(censor_data$cdm_name)[1],
+            options = list(
+              `actions-box` = TRUE,
+              size = 10,
+              `selected-text-format` = "count > 3"
+            ),
+            multiple = FALSE
+          )
+        ),
+        div(
+          style = "display: inline-block;vertical-align:top; width: 150px;",
+          pickerInput(
+            inputId = "censor_comparison",
+            label = "Study",
+            choices = unique(censor_data$comparison_name),
+            selected = unique(censor_data$comparison_name)[1],
+            options = list(
+              `actions-box` = TRUE,
+              size = 10,
+              `selected-text-format` = "count > 3"
+            ),
+            multiple = FALSE
+          )
+        ),
+        div(
+          style = "display: inline-block;vertical-align:top; width: 150px;",
+          pickerInput(
+            inputId = "censor_outcome",
+            label = "Outcome",
+            choices = unique(censor_data$outcome_name),
+            selected = censor_data$outcome_name[1],
+            options = list(
+              `actions-box` = TRUE,
+              size = 10,
+              `selected-text-format` = "count > 3"
+            ),
+            multiple = FALSE
+          )
+        ),
+        div(
+          style = "display: inline-block;vertical-align:top; width: 150px;",
+          pickerInput(
+            inputId = "censor_censoring_method",
+            label = "Censor selector",
+            choices = unique(censor_data$censoring_method),
+            selected = censor_data$censoring_method[1],
+            options = list(
+              `actions-box` = TRUE,
+              size = 10,
+              `selected-text-format` = "count > 3"
+            ),
+            multiple = FALSE
+          )
+        ),
+        DTOutput("censor_data") #%>% withSpinner()
       )
     )
   )
@@ -1195,6 +1290,18 @@ server <- function(input, output, session) {
     survival_plot_data <- get_survival()
     fit <- survfit(Surv(time, status) ~ group, data=survival_plot_data, weights = weight)
     autoplot(fit, censor = FALSE)
+  })
+  ## censor ----
+  get_censor <- reactive({
+    censor_data %>%
+      filter(.data$cdm_name == input$censor_db) %>%
+      filter(.data$outcome_name == input$censor_outcome) %>%
+      filter(.data$comparison_name == input$censor_comparison) %>%
+      filter(.data$censoring_method == input$censor_censoring_method) %>%
+      select(-c(cdm_name, outcome_name, comparison_name, censoring_method))
+  })
+  output$censor_data <- renderDataTable({
+    datatable(get_censor(), options = list(lengthChange = FALSE, searching = FALSE, ordering = FALSE, paging = FALSE))
   })
 }
 

@@ -209,35 +209,35 @@ outcomeNamesGroups <- tibble(
       outcome_group = "sensitivity"
     )
   ) %>%
-  union_all(
-    tibble(
-      outcome_name = pacsCohortSet$cohort_name
-    ) %>%
-      mutate(outcome_group = case_when(
-        grepl("leave_0-30", outcome_name) ~ "pacs 0-30",
-        grepl("leave_31-90", outcome_name) ~ "pacs 31-90",
-        grepl("leave_91-180", outcome_name) ~ "pacs 91-180",
-        grepl("leave_181-365", outcome_name) ~ "pacs 181-365",
-        grepl("covid+leave_0-30", outcome_name) ~ "pacs 0-30 covid",
-        grepl("covid+leave_31-90", outcome_name) ~ "pacs 31-90 covid",
-        grepl("covid+leave_91-180", outcome_name) ~ "pacs 91-180 covid",
-        grepl("covid+leave_181-365", outcome_name) ~ "pacs 181-365 covid",
-        grepl("vax+leave_0-30", outcome_name) ~ "pacs 0-30 vax",
-        grepl("vax+leave_31-90", outcome_name) ~ "pacs 31-90 vax",
-        grepl("vax+leave_91-180", outcome_name) ~ "pacs 91-180 vax",
-        grepl("vax+leave_181-365", outcome_name) ~ "pacs 181-365 vax",
-        grepl("covid+vax+leave_0-30", outcome_name) ~ "pacs 0-30 covid+vax",
-        grepl("covid+vax+leave_31-90", outcome_name) ~ "pacs 31-90 covid+vax",
-        grepl("covid+vax+leave_91-180", outcome_name) ~ "pacs 91-180 covid+vax",
-        grepl("covid+vax+leave_181-365", outcome_name) ~ "pacs 181-365 covid+vax"
-      ))
-  ) %>%
-  union_all(
-    tibble(
-      outcome_name = consequencesCohortSet$cohort_name,
-      outcome_group = "consequences"
-    )
-  ) %>%
+  # union_all(
+  #   tibble(
+  #     outcome_name = pacsCohortSet$cohort_name
+  #   ) %>%
+  #     mutate(outcome_group = case_when(
+  #       grepl("leave_0-30", outcome_name) ~ "pacs 0-30",
+  #       grepl("leave_31-90", outcome_name) ~ "pacs 31-90",
+  #       grepl("leave_91-180", outcome_name) ~ "pacs 91-180",
+  #       grepl("leave_181-365", outcome_name) ~ "pacs 181-365",
+  #       grepl("covid+leave_0-30", outcome_name) ~ "pacs 0-30 covid",
+  #       grepl("covid+leave_31-90", outcome_name) ~ "pacs 31-90 covid",
+  #       grepl("covid+leave_91-180", outcome_name) ~ "pacs 91-180 covid",
+  #       grepl("covid+leave_181-365", outcome_name) ~ "pacs 181-365 covid",
+  #       grepl("vax+leave_0-30", outcome_name) ~ "pacs 0-30 vax",
+  #       grepl("vax+leave_31-90", outcome_name) ~ "pacs 31-90 vax",
+  #       grepl("vax+leave_91-180", outcome_name) ~ "pacs 91-180 vax",
+  #       grepl("vax+leave_181-365", outcome_name) ~ "pacs 181-365 vax",
+  #       grepl("covid+vax+leave_0-30", outcome_name) ~ "pacs 0-30 covid+vax",
+  #       grepl("covid+vax+leave_31-90", outcome_name) ~ "pacs 31-90 covid+vax",
+  #       grepl("covid+vax+leave_91-180", outcome_name) ~ "pacs 91-180 covid+vax",
+  #       grepl("covid+vax+leave_181-365", outcome_name) ~ "pacs 181-365 covid+vax"
+  #     ))
+  # ) %>%
+  # union_all(
+  #   tibble(
+  #     outcome_name = consequencesCohortSet$cohort_name,
+  #     outcome_group = "consequences"
+  #   )
+  # ) %>%
   mutate(outcome_name = tolower(outcome_name))
 
 dataEstimates <- dataEstimates %>%
