@@ -9,9 +9,9 @@ postAcuteCovidId <- cohortSet(cdm[[symptomsCohortName]]) %>%
   filter(cohort_name == "post_acute_covid19") %>%
   pull("cohort_definition_id")
 
-unbalancedCovariates <- read_csv(here(results, paste0("asmd_", cdmName(cdm), ".csv")), show_col_types = FALSE) %>%
-  filter(asmd_adjusted > 0.1) %>%
-  filter(variable != "gp")
+# unbalancedCovariates <- read_csv(here(results, paste0("asmd_", cdmName(cdm), ".csv")), show_col_types = FALSE) %>%
+#   filter(asmd_adjusted > 0.1) %>%
+#   filter(variable != "gp")
 
 longcovidCohortSet <- cohortSet(cdm[[longcovidCohortName]]) %>% collect()
 ncoCohortSet <- cohortSet(cdm[[ncoCohortName]]) %>% collect()
@@ -30,13 +30,13 @@ events <- cdm[[indexCohortName]] %>%
 
 # compute estimates
 comparisonIds <-  comparisons$comparison_id[comparisons$skip == 0]
-comparisonIds <- comparisonIds[lapply(comparisonIds, function(x) {
-  unbalancedCovariates %>%
-    filter(.data$comparison_id == .env$x) %>%
-    pull("variable") %>%
-    length() <= 10
-}) %>% 
-  unlist()]
+# comparisonIds <- comparisonIds[lapply(comparisonIds, function(x) {
+#   unbalancedCovariates %>%
+#     filter(.data$comparison_id == .env$x) %>%
+#     pull("variable") %>%
+#     length() <= 10
+# }) %>% 
+#   unlist()]
 outcomeNames <- c(
   ncoCohortSet$cohort_name,
   longcovidCohortSet$cohort_name, 
@@ -44,7 +44,7 @@ outcomeNames <- c(
   "next_covid"
 ) %>%
   tolower()
-censoringMethods = c("leave", "leave+vaccine")
+censoringMethods = "leave"#c("leave", "leave+vaccine")
 
 for (comparison_id in comparisonIds) {
   
@@ -71,9 +71,9 @@ for (comparison_id in comparisonIds) {
     mutate(comparison_id = .env$comparison_id) %>%
     select(-"cohort_name")
     
-  unbalancedCovariatesComparison <- unbalancedCovariates %>%
-    filter(.data$comparison_id == .env$comparison_id) %>%
-    pull("variable")
+  # unbalancedCovariatesComparison <- unbalancedCovariates %>%
+  #   filter(.data$comparison_id == .env$comparison_id) %>%
+  #   pull("variable")
   
   # load ps data
   load(paste0(psFolder, "/ps_model_", comparison_id, ".RData"))
@@ -83,38 +83,38 @@ for (comparison_id in comparisonIds) {
     mutate(weight = if_else(group == "exposure", 1-ps, ps))
   
   # add covariates that we are going to adjust
-  nFeatureUnbalanced <- unbalancedCovariatesComparison[substr(unbalancedCovariatesComparison, 1, 1) != "f"]
-  if (length(nFeatureUnbalanced) > 0) {
-    load(here(results, tempData, "cohort.RData"))
-    collectedCohort <- collectedCohort %>%
-      left_join(
-        cohort %>%
-          select(all_of(c("subject_id", "cohort_start_date", nFeatureUnbalanced))),
-        by = c("subject_id", "cohort_start_date")
-      )
-    rm(cohort)
-  }
+  # nFeatureUnbalanced <- unbalancedCovariatesComparison[substr(unbalancedCovariatesComparison, 1, 1) != "f"]
+  # if (length(nFeatureUnbalanced) > 0) {
+  #   load(here(results, tempData, "cohort.RData"))
+  #   collectedCohort <- collectedCohort %>%
+  #     left_join(
+  #       cohort %>%
+  #         select(all_of(c("subject_id", "cohort_start_date", nFeatureUnbalanced))),
+  #       by = c("subject_id", "cohort_start_date")
+  #     )
+  #   rm(cohort)
+  # }
   
   # add features
-  featureUnbalanced <- unbalancedCovariatesComparison[substr(unbalancedCovariatesComparison, 1, 1) == "f"]
-  if (length(unbalancedCovariatesComparison) > 0) {
-    load(here(results, tempData, "features.RData"))
-    collectedCohort <- collectedCohort %>%
-      left_join(
-        features %>%
-          filter(feature %in% .env$featureUnbalanced) %>%
-          inner_join(
-            collectedCohort %>%
-              select("subject_id", "cohort_start_date"), 
-            by = c("subject_id", "cohort_start_date")
-          ) %>%
-          mutate(value = 1) %>%
-          pivot_wider(names_from = "feature", values_fill = 0),
-        by = c("subject_id", "cohort_start_date")
-      ) %>%
-      mutate(across(all_of(featureUnbalanced), ~ if_else(is.na(.), 0, .)))
-    rm(features)
-  }
+  # featureUnbalanced <- unbalancedCovariatesComparison[substr(unbalancedCovariatesComparison, 1, 1) == "f"]
+  # if (length(unbalancedCovariatesComparison) > 0) {
+  #   load(here(results, tempData, "features.RData"))
+  #   collectedCohort <- collectedCohort %>%
+  #     left_join(
+  #       features %>%
+  #         filter(feature %in% .env$featureUnbalanced) %>%
+  #         inner_join(
+  #           collectedCohort %>%
+  #             select("subject_id", "cohort_start_date"), 
+  #           by = c("subject_id", "cohort_start_date")
+  #         ) %>%
+  #         mutate(value = 1) %>%
+  #         pivot_wider(names_from = "feature", values_fill = 0),
+  #       by = c("subject_id", "cohort_start_date")
+  #     ) %>%
+  #     mutate(across(all_of(featureUnbalanced), ~ if_else(is.na(.), 0, .)))
+  #   rm(features)
+  # }
   collectedCohort <- collectedCohort %>% select(-"subject_id")
   save(
     collectedCohort, 
@@ -127,16 +127,16 @@ for (comparison_id in comparisonIds) {
   tryCatch({
     load(here(results, tempData, paste0("outcome_", comparison_id, ".RData")))
     
-    unbalancedCovariatesComparison <- unbalancedCovariates %>%
-      filter(.data$comparison_id == .env$comparison_id) %>%
-      pull("variable")
+    # unbalancedCovariatesComparison <- unbalancedCovariates %>%
+    #   filter(.data$comparison_id == .env$comparison_id) %>%
+    #   pull("variable")
     
     # get the estimates and kaplan plots
     x <- getEstimates(
       collectedCohort, 
       outcomeNames, 
       censoringMethods,
-      unbalancedCovariatesComparison
+      character()
     )
     x$result <- x$result %>% mutate(comparison_id = comparison_id)
     x$survival_plot <- x$survival_plot %>% 

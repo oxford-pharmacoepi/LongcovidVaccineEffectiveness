@@ -69,6 +69,11 @@ readFiles <- function(x) {
   }
   result <- lapply(dataFiles, function(f){read_csv(f, show_col_types = FALSE, col_types = colType)}) %>%
     bind_rows()
+  if ("cdm_name" %in% names(result)) {
+    result <- result %>%
+      mutate(cdm_name = if_else(cdm_name == "AURUM", "CPRD AURUM", cdm_name)) %>%
+      mutate(cdm_name = if_else(cdm_name == "GOLD", "CPRD GOLD", cdm_name)) 
+  }
   return(result)
 }
 renameComparisonName <- function(x, new_name) {
@@ -110,6 +115,8 @@ comparisons <- renameComparisonName(comparisons, comparison_new_name)
 # Exclude CVE SIDIAP
 comparisons <- comparisons %>%
   filter(!(cdm_name %in% c("SIDIAP", "CORIVA")) | grepl("\\(VE\\)", .data$comparison_name)) %>%
+  filter(!(cdm_name == "SIDIAP" & grepl("astrazeneca", comparison_name) & study %in% c(1, 4))) %>%
+  filter(!(cdm_name == "CORIVA" & grepl("astrazeneca", comparison_name) & study %in% c(2, 3, 4))) %>%
   filter(grepl("any|astrazeneca|pfizer", exposure_name)) %>%
   filter(grepl("any|astrazeneca|pfizer", comparator_name))
 cohort_details <- cohort_details %>%
@@ -148,9 +155,11 @@ study_attrition <- study_attrition %>%
 nco <- nco %>%
   inner_join(comparisons, by = c("comparison_id", "cdm_name"))
 estimates <- estimates %>%
+  filter(model == "finegray") %>%
   inner_join(comparisons, by = c("comparison_id", "cdm_name")) %>%
   filter(outcome_group %in% c("nco", "longcovid28", "longcovid90", "sensitivity")) %>%
   #filter(outcome_name != "next_covid") %>%
+  filter(outcome_name != "next_covid" | cdm_name != "SIDIAP") %>%
   mutate(outcome_name = if_else(outcome_name == "next_post_acute_covid19", "post_acute_covid19", outcome_name))
 covariates <- c("anxiety", "asthma", "chronic_kidney_disease", "chronic_liver_disease", "copd", "dementia", "depressive_disorder", "diabetes", "gerd", "heart_failure", "hiv", "hypertension", "hypothyroidism", "infertility", "inflammarory_bowel_disease", "malignant_neoplastic_disease", "myocardial_infarction", "osteoporosis", "pneumonia", "rheumatoid_arthritis", "stroke", "venous_thromboembolism")
 covariates <- paste0(covariates, "_count")
@@ -577,6 +586,10 @@ ui <- dashboardPage(
           tabPanel(
             "Propensity scores plot",
             plotlyOutput("plot_ps", height = "800px") %>% withSpinner()
+          ),
+          tabPanel(
+            "Weights plot",
+            plotlyOutput("weight_ps", height = "800px") %>% withSpinner()
           ),
           tabPanel(
             "Propensity scores coefficients",
@@ -1015,6 +1028,24 @@ server <- function(input, output, session) {
       mutate(freq = 100*.data$n / sum(.data$n)) %>% 
       ungroup() %>%
       ggplot(aes(x = ps, ymin = 0, y = freq, ymax = freq, color = group, fill = group)) +
+      geom_line() +
+      geom_ribbon(alpha = 0.5)
+  })
+  output$weight_ps <- renderPlotly({
+    x <- ps_distribution %>%
+      filter(cdm_name == input$ps_cdm_name) %>%
+      filter(comparison_id == get_comparison_id()) %>%
+      mutate(weight = if_else(group == "comparator", ps, 1 - ps))
+    validate(
+      need(nrow(x)>0, "No data for this comparison")
+    )
+    x %>%
+      select("group", "weight", "n") %>%
+      group_by(group) %>%
+      mutate(n = as.numeric(smooth(.data$n))) %>%
+      mutate(freq = 100*.data$n / sum(.data$n)) %>% 
+      ungroup() %>%
+      ggplot(aes(x = weight, ymin = 0, y = freq, ymax = freq, color = group, fill = group)) +
       geom_line() +
       geom_ribbon(alpha = 0.5)
   })

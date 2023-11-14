@@ -7,6 +7,7 @@ library(ggplot2)
 library(ggfortify)
 library(here)
 library(meta)
+library(plotly)
 
 # functions ----
 clean_columns <- function(x, names) {
@@ -76,6 +77,22 @@ table_characteristics <- readFiles("table_characteristics_crude")
 table_characteristics_weighted <- readFiles("table_characteristics_weighted")
 survival_plot <- readFiles("survival_plot")
 
+# rename aurum and gold
+renameAG <- function(x) {
+  x %>% 
+    mutate(cdm_name = if_else(cdm_name == "AURUM", "CPRD AURUM", cdm_name)) %>%
+    mutate(cdm_name = if_else(cdm_name == "GOLD", "CPRD GOLD", cdm_name)) 
+}
+asmd <- renameAG(asmd)
+cohort_details <- renameAG(cohort_details)
+comparisons <- renameAG(comparisons)
+nco <- renameAG(nco)
+estimates <- renameAG(estimates)
+study_attrition <- renameAG(study_attrition)
+table_characteristics <- renameAG(table_characteristics)
+table_characteristics_weighted <- renameAG(table_characteristics_weighted)
+survival_plot <- renameAG(survival_plot)
+
 comparison_new_name <- comparisons %>%
   select(comparison_name) %>%
   distinct() %>%
@@ -92,6 +109,8 @@ comparison_new_name <- comparisons %>%
 comparisons <- renameComparisonName(comparisons, comparison_new_name)
 comparisons <- comparisons %>%
   filter(cdm_name != "SIDIAP" | grepl("\\(VE\\)", .data$comparison_name)) %>%
+  filter(!(cdm_name == "SIDIAP" & grepl("astrazeneca", comparison_name) & study %in% c(1, 4))) %>%
+  filter(!(cdm_name == "CORIVA" & grepl("astrazeneca", comparison_name) & study %in% c(2, 3, 4))) %>%
   filter(skip == 0)
 study_attrition <- study_attrition %>%
   mutate(excluded = if_else(is.na(excluded), 0, excluded)) %>%
@@ -100,7 +119,8 @@ study_attrition <- study_attrition %>%
 nco <- nco %>%
   inner_join(comparisons, by = c("comparison_id", "cdm_name"))
 estimates <- estimates %>%
-  inner_join(comparisons, by = c("comparison_id", "cdm_name"))
+  inner_join(comparisons, by = c("comparison_id", "cdm_name")) %>%
+  filter(model == "finegray")
 covariates <- c("anxiety", "asthma", "chronic_kidney_disease", "chronic_liver_disease", "copd", "dementia", "depressive_disorder", "diabetes", "gerd", "heart_failure", "hiv", "hypertension", "hypothyroidism", "infertility", "inflammarory_bowel_disease", "malignant_neoplastic_disease", "myocardial_infarction", "osteoporosis", "pneumonia", "rheumatoid_arthritis", "stroke", "venous_thromboembolism")
 covariates <- paste0(covariates, "_count")
 survival_plot <- survival_plot %>%
@@ -124,7 +144,7 @@ asmd <- asmd %>%
 data_plot <- asmd %>%
   inner_join(
     comparisons %>%
-      filter(cdm_name == "GOLD") %>%
+      filter(cdm_name == "CPRD GOLD") %>%
       mutate(comp = substr(comparison_name, 4, nchar(comparison_name))) %>%
       filter(comp %in% c("any (VE)", "pfizer (VE)", "astrazeneca (VE)", "pfizer - astrazeneca (CVE)")) %>%
       mutate(comp = factor(comp, c("any (VE)", "pfizer (VE)", "astrazeneca (VE)", "pfizer - astrazeneca (CVE)"))) %>%
@@ -146,7 +166,7 @@ unbalanced <- data_plot %>%
 data_label <- data_plot %>%
   select(study, comp, number_unadjusted) %>%
   distinct()
-ggplot(data = data_plot, aes(x = asmd_unadjusted, y = asmd_adjusted)) +
+p <- ggplot(data = data_plot, aes(x = asmd_unadjusted, y = asmd_adjusted)) +
   geom_point(alpha = 0.2, shape = 21, colour = "blue", fill = "blue", size = 1.5) +
   geom_hline(yintercept=0.1) +
   geom_vline(xintercept=0.1) +
@@ -157,8 +177,8 @@ ggplot(data = data_plot, aes(x = asmd_unadjusted, y = asmd_adjusted)) +
   xlab("ASMD before OW") +
   ylab("ASMD after OW")
 ggsave(
-  "Figure1_GOLD.png",
-  plot = last_plot(),
+  "Figure1_GOLD.png", device = "png",
+  plot = p,
   path = here("figures"),
   scale = 1,
   width = 3000,
@@ -170,7 +190,7 @@ ggsave(
 data_plot <- asmd %>%
   inner_join(
     comparisons %>%
-      filter(cdm_name == "AURUM") %>%
+      filter(cdm_name == "CPRD AURUM") %>%
       mutate(comp = substr(comparison_name, 4, nchar(comparison_name))) %>%
       filter(comp %in% c("any (VE)", "pfizer (VE)", "astrazeneca (VE)", "pfizer - astrazeneca (CVE)")) %>%
       mutate(comp = factor(comp, c("any (VE)", "pfizer (VE)", "astrazeneca (VE)", "pfizer - astrazeneca (CVE)"))) %>%
@@ -192,7 +212,7 @@ unbalanced <- data_plot %>%
 data_label <- data_plot %>%
   select(study, comp, number_unadjusted) %>%
   distinct()
-ggplot(data = data_plot, aes(x = asmd_unadjusted, y = asmd_adjusted)) +
+p <-ggplot(data = data_plot, aes(x = asmd_unadjusted, y = asmd_adjusted)) +
   geom_point(alpha = 0.2, shape = 21, colour = "blue", fill = "blue", size = 1.5) +
   geom_hline(yintercept=0.1) +
   geom_vline(xintercept=0.1) +
@@ -203,8 +223,8 @@ ggplot(data = data_plot, aes(x = asmd_unadjusted, y = asmd_adjusted)) +
   xlab("ASMD before OW") +
   ylab("ASMD after OW")
 ggsave(
-  "Figure1_AURUM.png",
-  plot = last_plot(),
+  "Figure1_AURUM.png", device = "png",
+  plot = p,
   path = here("figures"),
   scale = 1,
   width = 3000,
@@ -238,7 +258,7 @@ unbalanced <- data_plot %>%
 data_label <- data_plot %>%
   select(study, comp, number_unadjusted) %>%
   distinct()
-ggplot(data = data_plot, aes(x = asmd_unadjusted, y = asmd_adjusted)) +
+p <- ggplot(data = data_plot, aes(x = asmd_unadjusted, y = asmd_adjusted)) +
   geom_point(alpha = 0.2, shape = 21, colour = "blue", fill = "blue", size = 1.5) +
   geom_hline(yintercept=0.1) +
   geom_vline(xintercept=0.1) +
@@ -249,8 +269,8 @@ ggplot(data = data_plot, aes(x = asmd_unadjusted, y = asmd_adjusted)) +
   xlab("ASMD before OW") +
   ylab("ASMD after OW")
 ggsave(
-  "Figure1_SIDIAP.png",
-  plot = last_plot(),
+  "Figure1_SIDIAP.png", device = "png",
+  plot = p,
   path = here("figures"),
   scale = 1,
   width = 3000,
@@ -285,7 +305,7 @@ unbalanced <- data_plot %>%
 data_label <- data_plot %>%
   select(study, comp, number_unadjusted) %>%
   distinct()
-ggplot(data = data_plot, aes(x = asmd_unadjusted, y = asmd_adjusted)) +
+p <- ggplot(data = data_plot, aes(x = asmd_unadjusted, y = asmd_adjusted)) +
   geom_point(alpha = 0.2, shape = 21, colour = "blue", fill = "blue", size = 1.5) +
   geom_hline(yintercept=0.1) +
   geom_vline(xintercept=0.1) +
@@ -296,8 +316,8 @@ ggplot(data = data_plot, aes(x = asmd_unadjusted, y = asmd_adjusted)) +
   xlab("ASMD before OW") +
   ylab("ASMD after OW")
 ggsave(
-  "Figure1_CORIVA.png",
-  plot = last_plot(),
+  "Figure1_CORIVA.png", device = "png",
+  plot = p,
   path = here("figures"),
   scale = 1,
   width = 3000,
@@ -365,7 +385,7 @@ write_csv(estimates_plot, here("data_manuscript.csv"))
 
 for (censK in cens) {
   for (outcome in outcomes) {
-    estimates_plot %>%
+    p <- estimates_plot %>%
       filter(censoring_method == censK) %>%
       filter(outcome_name == outcome) %>%
       filter(adjustment == "calibrated") %>%
@@ -377,10 +397,20 @@ for (censK in cens) {
       )) %>%
       mutate(
         comparison = factor(comparison, levels = c("Any vaccine", "BNT162b2", "ChAdOx1"))
-      ) %>%
-      mutate(
-        cdm_name = factor(cdm_name, levels = c("AURUM", "GOLD", "SIDIAP", "CORIVA"))
-      ) %>%
+      ) 
+    if (!grepl("post_acute_covid19", outcome)) {
+      p <- p %>%
+        mutate(
+          cdm_name = factor(cdm_name, levels = c("CPRD AURUM", "CPRD GOLD", "SIDIAP", "CORIVA"))
+        )
+    } else {
+      p <- p %>%
+        filter(cdm_name %in% c("CPRD AURUM", "SIDIAP")) %>%
+        mutate(
+          cdm_name = factor(cdm_name, levels = c("CPRD AURUM", "SIDIAP"))
+        )
+    }
+    p <- p %>%
       mutate(adjustment_y = case_when(
         study == "Study 1" ~ 5,
         study == "Study 2" ~ 4,
@@ -393,17 +423,18 @@ for (censK in cens) {
       geom_point(aes(x=hr, shape = adjustment), size=1) +
       geom_linerange(aes(xmin=lower_hr, xmax=upper_hr)) +
       facet_grid(cdm_name ~ comparison) +
-      labs(title = outcome) +
-      scale_y_continuous(limits = c(0, 5.5), breaks = c(0.5, 2, 3, 4, 5), labels = c("meta-analysis", "cohort 4", "cohort 3", "cohort 2", "cohort 1")) +
-      scale_x_continuous(limits = c(0, 2), breaks = seq(0, 2, by = 0.5)) + 
+      labs(x = "Hazard ratio") +
+      scale_y_continuous(breaks = c(0.5, 2, 3, 4, 5), labels = c("meta-analysis", "cohort 4", "cohort 3", "cohort 2", "cohort 1")) +
+      scale_x_continuous(breaks = c(0.1, 0.25, 0.5, 1, 2), trans = "log10") + 
+      coord_cartesian(ylim = c(0, 5.5), xlim = c(0.1, 2)) +
       geom_vline(xintercept = 1) +
       geom_hline(yintercept = 1.25, linetype="dashed", color = "black") +
       theme(
-        axis.title.y = element_blank()
+        axis.title.y = element_blank(), legend.position = "none"
       )
     ggsave(
-      paste0("Figure2_", outcome, "_", censK,".png"),
-      plot = last_plot(),
+      paste0("Figure2_", outcome, "_", censK,".png"), device = "png",
+      plot = p,
       path = here("figures"),
       scale = 1,
       width = 3000,
@@ -415,15 +446,15 @@ for (censK in cens) {
 }
 for (censK in cens) {
   for (outcome in outcomes) {
-    estimates_plot %>%
+    p <- estimates_plot %>%
       filter(censoring_method == censK) %>%
       filter(outcome_name == outcome) %>%
       filter(adjustment == "calibrated") %>%
       filter(comparison == "pfizer - astrazeneca (CVE)") %>%
       mutate(comparison = "BNT162b2 - ChAdOx1") %>%
-      filter(cdm_name %in% c("AURUM", "GOLD")) %>%
+      filter(cdm_name %in% c("CPRD AURUM", "CPRD GOLD")) %>%
       mutate(
-        cdm_name = factor(cdm_name, levels = c("AURUM", "GOLD"))
+        cdm_name = factor(cdm_name, levels = c("CPRD AURUM", "CPRD GOLD"))
       ) %>%
       mutate(adjustment_y = case_when(
         study == "Study 1" ~ 5,
@@ -437,17 +468,18 @@ for (censK in cens) {
       geom_point(aes(x=hr, shape = adjustment), size=1) +
       geom_linerange(aes(xmin=lower_hr, xmax=upper_hr)) +
       facet_grid(cdm_name ~ comparison) +
-      labs(title = outcome) +
-      scale_y_continuous(limits = c(0, 5.5), breaks = c(0.5, 2, 3, 4, 5), labels = c("meta-analysis", "cohort 4", "cohort 3", "cohort 2", "cohort 1")) +
-      scale_x_continuous(limits = c(0, 3), breaks = seq(0, 3, by = 0.5)) + 
+      labs(x = "Hazard ratio") +
+      scale_y_continuous(breaks = c(0.5, 2, 3, 4, 5), labels = c("meta-analysis", "cohort 4", "cohort 3", "cohort 2", "cohort 1")) +
+      scale_x_continuous(breaks = c(0.1, 0.25, 0.5, 1, 2), trans = "log10") + 
+      coord_cartesian(ylim = c(0, 5.5), xlim = c(0.1, 3)) +
       geom_vline(xintercept = 1) +
       geom_hline(yintercept = 1.25, linetype="dashed", color = "black") +
       theme(
-        axis.title.y = element_blank()
+        axis.title.y = element_blank(), legend.position = "none"
       )
     ggsave(
-      paste0("Figure3_", outcome, "_", censK,".png"),
-      plot = last_plot(),
+      paste0("Figure3_", outcome, "_", censK,".png"), device = "png",
+      plot = p,
       path = here("figures"),
       scale = 1,
       width = 1500,
